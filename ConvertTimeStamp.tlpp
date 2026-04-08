@@ -1,0 +1,29 @@
+
+/*/{Protheus.doc} ConvertTimeStamp
+Converte um timestamp em uma data no formato do ambiente Protheus (geralmente DD/MM/YYYY).
+@type function
+@version 1.0
+@author felipe.pazetto
+@since 08/04/2026
+@return character, data convertida no formato do ambiente Protheus
+@see 
+/*/
+User Function ConvertTimeStamp(cTimeStamp)
+    Local cDataCurta        as character 
+    Local cDataLimpa        as character
+    Local dData             as date
+    Local cNovaData := ""   as character
+
+    // 1. Pega apenas a parte da data "YYYY-MM-DD"
+    cDataCurta := SubStr(cTimeStamp, 1, 10) 
+
+    // 2. Remove os traços para ficar no formato aceito pelo SToD: "YYYYMMDD"
+    cDataLimpa := StrTran(cDataCurta, "-", "") 
+
+    // 3. Converte de String para o tipo Date nativo do Protheus
+    dData := SToD(cDataLimpa) 
+
+    // 4. Converte de volta para String no formato do ambiente (Geralmente DD/MM/YYYY)
+    cNovaData := DToC(dData)
+
+Return cNovaData
