@@ -1,0 +1,332 @@
+#include "tlpp-core.th"
+#include "tlpp-rest.th"
+#include "protheus.ch"
+#include "topconn.ch"
+#include "tbiconn.ch"
+#include "restful.ch"
+
+// =============================================================================
+// Declara��o da Namespace
+// =============================================================================
+Namespace custom.rest.importador
+
+/*/{Protheus.doc} ZIMPTABS
+Endpoint GET respons�vel por listar as tabelas suportadas pelo importador CSV para popular o componente po-select do frontend PO-UI. Retorna um JSON com alias, descri��o, rotina ExecAuto e label concatenada.
+@type      function
+@author    Felipe O. Pazetto
+@since     15/04/2026
+@version   1.0
+@example   GET https://<servidor>:<porta>/rest/zimportador/tabelas
+/*/
+// =============================================================================
+@Get("/zimportador/tabelas")
+
+User Function ZIMPTABS()
+
+    Local jResponse := JsonObject():New() as object
+    Local jItem     := Nil                as object
+    Local aMap   := U_ZIMPMAP() as array
+    Local aItems := {}          as array
+    Local nI := 0 as numeric
+
+    ConOut("[ZIMPTABS] Listando tabelas suportadas pelo importador...")
+
+    // -------------------------------------------------------------------------
+    // Monta o array de itens a partir do mapeamento
+    // -------------------------------------------------------------------------
+    For nI := 1 To Len(aMap)
+
+        jItem := JsonObject():New()
+
+        jItem["alias"]     := aMap[nI][1]
+        jItem["descricao"] := aMap[nI][2]
+        jItem["rotina"]    := aMap[nI][3]
+        jItem["label"]     := aMap[nI][1] + " - " + aMap[nI][2]
+
+        AAdd(aItems, jItem)
+
+    Next nI
+
+    jResponse["items"] := aItems
+
+    oRest:setStatusCode(200)
+    oRest:setKeyHeaderResponse("Content-Type", "application/json")
+    oRest:setResponse(jResponse:ToJson())
+
+    ConOut("[ZIMPTABS] " + cValToChar(Len(aMap)) + " tabela(s) retornada(s).")
+
+Return
+
+/*/{Protheus.doc} ZIMPINIC
+Endpoint POST respons�vel por iniciar a importa��o a partir de um corpo JSON
+contendo alias, conte�do CSV em texto e ID de sess�o. Dispara a rotina
+U_ZIMPEXEC de forma s�ncrona e devolve o resultado final da importa��o.
+
+@type      function
+@author    Felipe O. Pazetto
+@since     15/04/2026
+@version   1.0
+@param     alias,character,Alias Protheus alvo da importa��o (SA1, SB1, ...)
+@param     csv,character,Conte�do CSV em texto (delimitador ";", UTF-8)
+@param     session,character,ID �nico da sess�o para controle de progresso
+@example   POST https://<servidor>:<porta>/rest/zimportador/iniciar
+           {
+             "alias"   : "SA1",
+             "csv"     : "A1_COD;A1_LOJA;A1_NOME\n000001;01;Cliente Teste",
+             "session" : "uuid-abc-123"
+           }
+@return    JSON
+           {
+             "sucesso"  : true,
+             "mensagem" : "Importacao concluida...",
+             "logPath"  : "C:\\temp\\IMP_SA1_20260415_143012.txt",
+             "ok"       : 1,
+             "erro"     : 0,
+             "total"    : 1
+           }
+/*/
+// =============================================================================
+@Post("/zimportador/iniciar")
+
+User Function ZIMPINIC()
+
+    Local cBody    := ""             as character
+    Local cAlias   := ""             as character
+    Local cCsv     := ""             as character
+    Local cSession := ""             as character
+    Local jBody     := JsonObject():New() as object
+    Local jResponse := JsonObject():New() as object
+    Local aRet := {} as array
+
+    ConOut("[ZIMPINIC] Recebendo requisicao de importacao...")
+
+    // -------------------------------------------------------------------------
+    // L� e desserializa o corpo da requisi��o
+    // -------------------------------------------------------------------------
+    cBody := oRest:getBodyRequest()
+
+    If Empty(cBody)
+        oRest:setStatusCode(400)
+        jResponse["sucesso"] := .F.
+        jResponse["erro"]    := "Corpo da requisicao vazio."
+        oRest:setKeyHeaderResponse("Content-Type", "application/json")
+        oRest:setResponse(jResponse:ToJson())
+        Return
+    EndIf
+
+    jBody:FromJson(cBody)
+
+    cAlias   := Iif(ValType(jBody:GetJsonObject("alias"))   == "C", Alltrim(jBody:GetJsonObject("alias")),   "")
+    cCsv     := Iif(ValType(jBody:GetJsonObject("csv"))     == "C", jBody:GetJsonObject("csv"),              "")
+    cSession := Iif(ValType(jBody:GetJsonObject("session")) == "C", Alltrim(jBody:GetJsonObject("session")), "")
+
+    // -------------------------------------------------------------------------
+    // Valida par�metros obrigat�rios
+    // -------------------------------------------------------------------------
+    If Empty(cAlias) .Or. Empty(cCsv) .Or. Empty(cSession)
+        ConOut("[ZIMPINIC][ERRO] Parametros obrigatorios ausentes.")
+        oRest:setStatusCode(400)
+        jResponse["sucesso"] := .F.
+        jResponse["erro"]    := "Parametros obrigatorios: alias, csv, session."
+        oRest:setKeyHeaderResponse("Content-Type", "application/json")
+        oRest:setResponse(jResponse:ToJson())
+        Return
+    EndIf
+
+    ConOut("[ZIMPINIC] Alias=" + cAlias + " | Sessao=" + cSession + " | Tamanho CSV=" + cValToChar(Len(cCsv)) + " bytes")
+
+    // -------------------------------------------------------------------------
+    // Dispara a importa��o s�ncrona. Para grandes volumes, considerar StartJob
+    // (ass�ncrono); o frontend continua consultando GET /progresso mesmo assim.
+    // -------------------------------------------------------------------------
+    aRet := U_ZIMPEXEC(cCsv, cAlias, cSession)
+
+    // -------------------------------------------------------------------------
+    // Monta resposta JSON com o resultado final
+    // -------------------------------------------------------------------------
+    jResponse["sucesso"]  := aRet[1]
+    jResponse["mensagem"] := aRet[2]
+    jResponse["logPath"]  := aRet[3]
+    jResponse["ok"]       := aRet[4]
+    jResponse["erro"]     := aRet[5]
+    jResponse["total"]    := aRet[6]
+
+    oRest:setStatusCode(200)
+    oRest:setKeyHeaderResponse("Content-Type", "application/json")
+    oRest:setResponse(jResponse:ToJson())
+
+    ConOut("[ZIMPINIC] Resposta enviada. Sucesso=" + cValToChar(aRet[1]))
+
+Return
+
+/*/{Protheus.doc} ZIMPPROGR
+Endpoint GET respons�vel por consultar o progresso atual de uma sess�o de
+importa��o. Retorna um JSON com quantidade atual, total, descri��o do estado,
+hora da �ltima atualiza��o e percentual calculado.
+
+@type      function
+@author    Felipe O. Pazetto
+@since     15/04/2026
+@version   1.0
+@param     session,character,ID �nico da sess�o (via query string)
+@example   GET https://<servidor>:<porta>/rest/zimportador/progresso?session=uuid-123
+@return    JSON
+           {
+             "atual"      : 10,
+             "total"      : 100,
+             "descricao"  : "Processando: 000001|01",
+             "hora"       : "14:30:15",
+             "percentual" : 10.00
+           }
+/*/
+// =============================================================================
+@Get("/zimportador/progresso")
+
+User Function ZIMPPROGR()
+
+    Local cSession := "" as character
+    Local jQuery    := Nil                as object
+    Local jResponse := JsonObject():New() as object
+    Local aProg := {} as array
+    Local nPerc := 0 as numeric
+
+    ConOut("[ZIMPPROGR] Consultando progresso de importacao...")
+
+    // -------------------------------------------------------------------------
+    // Recupera session da query string
+    // -------------------------------------------------------------------------
+    jQuery := oRest:getQueryRequest()
+
+    If jQuery != Nil .And. !Empty(jQuery:GetJsonObject("session"))
+        cSession := Alltrim(jQuery:GetJsonObject("session"))
+    EndIf
+
+    If Empty(cSession)
+        ConOut("[ZIMPPROGR][ERRO] Parametro session nao informado.")
+        oRest:setStatusCode(400)
+        jResponse["erro"] := "session obrigatorio."
+        oRest:setKeyHeaderResponse("Content-Type", "application/json")
+        oRest:setResponse(jResponse:ToJson())
+        Return
+    EndIf
+
+    // -------------------------------------------------------------------------
+    // Consulta progresso em mem�ria global e calcula percentual
+    // -------------------------------------------------------------------------
+    aProg := U_ZIMPPRGR(cSession)
+
+    If Val(aProg[2]) > 0
+        nPerc := Round((Val(aProg[1]) / Val(aProg[2])) * 100, 2)
+    EndIf
+
+    jResponse["atual"]      := Val(aProg[1])
+    jResponse["total"]      := Val(aProg[2])
+    jResponse["descricao"]  := aProg[3]
+    jResponse["hora"]       := aProg[4]
+    jResponse["percentual"] := nPerc
+
+    oRest:setStatusCode(200)
+    oRest:setKeyHeaderResponse("Content-Type", "application/json")
+    oRest:setResponse(jResponse:ToJson())
+
+    ConOut("[ZIMPPROGR] Progresso " + cValToChar(nPerc) + "% (" + aProg[1] + "/" + aProg[2] + ")")
+
+Return
+
+/*/{Protheus.doc} ZIMPLOGD
+Endpoint GET respons�vel por retornar o conte�do do arquivo de log mais recente
+da pasta definida em ZZ_LOGDIR. Busca arquivos no padr�o "IMP_*.txt" ordenados
+por data/hora decrescente e devolve o mais novo em texto plano.
+
+@type      function
+@author    Felipe O. Pazetto
+@since     15/04/2026
+@version   1.0
+@param     session,character,ID �nico da sess�o (via query string)
+@param     ZZ_LOGDIR,character,Diret�rio f�sico onde os logs est�o gravados
+@example   GET https://<servidor>:<porta>/rest/zimportador/log?session=uuid-123
+@return    text/plain com o conte�do do log
+/*/
+// =============================================================================
+@Get("/zimportador/log")
+
+User Function ZIMPLOGD()
+
+    Local cSession  := ""                                                as character
+    Local cPath     := Alltrim(SuperGetMV("ZZ_LOGDIR", .F., "C:\temp\")) as character
+    Local cBusca    := ""                                                as character
+    Local cConteudo := ""                                                as character
+    Local cBuffer   := ""                                                as character
+    Local jQuery    := Nil                as object
+    Local jResponse := JsonObject():New() as object
+    Local aArqs := {} as array
+    Local nH := 0 as numeric
+
+    ConOut("[ZIMPLOGD] Recuperando arquivo de log mais recente...")
+
+    // -------------------------------------------------------------------------
+    // Recupera session da query string
+    // -------------------------------------------------------------------------
+    jQuery := oRest:getQueryRequest()
+
+    If jQuery != Nil .And. !Empty(jQuery:GetJsonObject("session"))
+        cSession := Alltrim(jQuery:GetJsonObject("session"))
+    EndIf
+
+    If Empty(cSession)
+        ConOut("[ZIMPLOGD][ERRO] Parametro session nao informado.")
+        oRest:setStatusCode(400)
+        jResponse["erro"] := "session obrigatorio."
+        oRest:setKeyHeaderResponse("Content-Type", "application/json")
+        oRest:setResponse(jResponse:ToJson())
+        Return
+    EndIf
+
+    // -------------------------------------------------------------------------
+    // Lista os logs da pasta e elege o mais recente (ordena desc por data/hora)
+    // Em produ��o, salvar o caminho junto com session em GlbValue � o ideal.
+    // -------------------------------------------------------------------------
+    cBusca := cPath + "IMP_*.txt"
+    aArqs  := Directory(cBusca)
+
+    If Len(aArqs) == 0
+        ConOut("[ZIMPLOGD][ERRO] Nenhum log encontrado em " + cPath)
+        oRest:setStatusCode(404)
+        jResponse["erro"] := "Log nao encontrado."
+        oRest:setKeyHeaderResponse("Content-Type", "application/json")
+        oRest:setResponse(jResponse:ToJson())
+        Return
+    EndIf
+
+    ASort(aArqs, , , {|x, y| x[3] + x[4] > y[3] + y[4]})
+
+    // -------------------------------------------------------------------------
+    // Abre e l� o arquivo mais recente
+    // -------------------------------------------------------------------------
+    nH := FOpen(cPath + aArqs[1][1], 0)
+
+    If nH == -1
+        ConOut("[ZIMPLOGD][ERRO] Falha ao abrir arquivo " + cPath + aArqs[1][1])
+        oRest:setStatusCode(500)
+        jResponse["erro"] := "Erro ao ler log."
+        oRest:setKeyHeaderResponse("Content-Type", "application/json")
+        oRest:setResponse(jResponse:ToJson())
+        Return
+    EndIf
+
+    cBuffer := Space(8192)
+
+    While (FRead(nH, @cBuffer, 8192)) > 0
+        cConteudo += cBuffer
+        cBuffer   := Space(8192)
+    End
+
+    FClose(nH)
+
+    oRest:setStatusCode(200)
+    oRest:setKeyHeaderResponse("Content-Type", "text/plain; charset=utf-8")
+    oRest:setResponse(cConteudo)
+
+    ConOut("[ZIMPLOGD] Log entregue. Arquivo=" + aArqs[1][1] + " | Bytes=" + cValToChar(Len(cConteudo)))
+
+Return

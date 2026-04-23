@@ -1,0 +1,573 @@
+#include "tlpp-core.th"
+#include "tlpp-rest.th"
+#include "protheus.ch"
+#include "topconn.ch"
+#include "tbiconn.ch"
+#include "fwmvcdef.ch"
+#include "restful.ch"
+
+// =============================================================================
+// Declaração da Namespace
+// =============================================================================
+Namespace custom.importador.csv
+
+/*/{Protheus.doc} ZIMPCSV
+Rotina de importação de dados via CSV utilizando ExecAuto das rotinas padrão.
+Lê arquivos CSV (delimitador ";", encoding UTF-8), mapeia os campos para o
+formato esperado por cada ExecAuto e processa linha a linha gravando resultado
+em log no diretório definido pelo parâmetro ZZ_LOGDIR.
+
+@type      function
+@author    Felipe O. Pazetto
+@since     10/2025
+@version   1.0
+@obs       Ponto de entrada para execução manual via SmartClient. A interface
+           principal do importador é o PO-UI consumido via REST (ZIMPREST).
+@example   U_ZIMPCSV()
+@return    NIL
+/*/
+// =============================================================================
+User Function ZIMPCSV()
+
+    ConOut("[ZIMPCSV] Abrindo interface do importador via SmartClient.")
+    Processa({|| fZimpCSVDialog() }, "Importador CSV")
+
+Return Nil
+
+/*/{Protheus.doc} fZimpCSVDialog
+Stub visual da versão ADVPL. Exibe mensagem direcionando o operador para a
+interface PO-UI (rota /importador).
+
+@type      function
+@author    Felipe O. Pazetto
+@since     10/2025
+@version   1.0
+@return    NIL
+/*/
+// =============================================================================
+Static Function fZimpCSVDialog()
+
+    ConOut("[fZimpCSVDialog] Utilize a interface PO-UI em /importador para usar o importador.")
+
+Return Nil
+
+/*/{Protheus.doc} ZIMPMAP
+Retorna o mapeamento de tabelas suportadas pelo importador com nome, descrição,
+rotina ExecAuto, tipo de execução e campos-chave. Cada entrada devolve uma
+estrutura no formato: {ALIAS, DESC, ROTINA, TIPO_EXEC, KEY_FIELDS}.
+
+@type      function
+@author    Felipe O. Pazetto
+@since     10/2025
+@version   1.0
+@example   aMap := U_ZIMPMAP()
+@return    array
+/*/
+// =============================================================================
+User Function ZIMPMAP()
+
+    Local aMap := {} as array
+
+    // -------------------------------------------------------------------------
+    // Tabelas de cadastro direto (ExecAuto padrão com aCampos)
+    // -------------------------------------------------------------------------
+    AAdd(aMap, {"SA1", "Clientes"              , "CRMA980", "CADASTRO", {"A1_COD", "A1_LOJA"}})
+    AAdd(aMap, {"SA2", "Fornecedores"          , "MATA020", "CADASTRO", {"A2_COD", "A2_LOJA"}})
+    AAdd(aMap, {"SB1", "Produtos"              , "MATA010", "CADASTRO", {"B1_COD"}})
+    AAdd(aMap, {"SA3", "Vendedores"            , "MATA040", "CADASTRO", {"A3_COD"}})
+    AAdd(aMap, {"SA4", "Transportadoras"       , "OMSA040", "CADASTRO", {"A4_COD"}})
+    AAdd(aMap, {"SA5", "Amarracao Prod x Forn" , "MATA060", "CADASTRO", {"A5_FORNECE", "A5_LOJA", "A5_PRODUTO"}})
+    AAdd(aMap, {"SA6", "Bancos"                , "FINA070", "CADASTRO", {"A6_COD", "A6_AGENCIA", "A6_NUMCON"}})
+    AAdd(aMap, {"SB5", "Complemento Produto"   , "MATA180", "CADASTRO", {"B5_COD"}})
+    AAdd(aMap, {"SE4", "Condicoes de Pagamento", "FINA140", "CADASTRO", {"E4_CODIGO"}})
+    AAdd(aMap, {"SED", "Naturezas Financeiras" , "FINA040", "CADASTRO", {"ED_CODIGO"}})
+    AAdd(aMap, {"SF4", "Tipos de E/S (TES)"    , "MATA080", "CADASTRO", {"F4_CODIGO"}})
+    AAdd(aMap, {"SBM", "Grupos de Produto"     , "MATA015", "CADASTRO", {"BM_GRUPO"}})
+    AAdd(aMap, {"SAH", "Unidades de Medida"    , "MATA130", "CADASTRO", {"AH_UNIMED"}})
+    AAdd(aMap, {"NNR", "Armazens"              , "MATA008", "CADASTRO", {"NNR_CODIGO"}})
+    AAdd(aMap, {"CTT", "Centros de Custo"      , "CTBA180", "CADASTRO", {"CTT_CUSTO"}})
+    AAdd(aMap, {"CT1", "Plano de Contas"       , "CTBA030", "CADASTRO", {"CT1_CONTA"}})
+    AAdd(aMap, {"SU5", "Contatos"              , "TMKA070", "CADASTRO", {"U5_CODCONT"}})
+    AAdd(aMap, {"CC2", "Municipios IBGE"       , "GPEA350", "CADASTRO", {"CC2_EST", "CC2_CODMUN"}})
+
+    // -------------------------------------------------------------------------
+    // Tabelas com cabeçalho + itens (ExecAuto usa aCabec + aItens)
+    // -------------------------------------------------------------------------
+    AAdd(aMap, {"SG1", "Estruturas de Produto" , "MATA110", "CAB_ITENS", {"G1_COD"}})
+    AAdd(aMap, {"DA0", "Tabela de Precos (Cab)", "MATA460", "CAB_ITENS", {"DA0_CODTAB"}})
+
+    // -------------------------------------------------------------------------
+    // Tabelas de saldo (tratamento especial)
+    // -------------------------------------------------------------------------
+    AAdd(aMap, {"SB2", "Saldos em Estoque"     , "MATA220", "CADASTRO", {"B2_COD", "B2_LOCAL"}})
+
+Return aMap
+
+/*/{Protheus.doc} ZIMPEXEC
+Função principal que executa a importação. Recebe o conteúdo CSV em string,
+o alias alvo e o ID de sessão para controle de progresso. Processa linha a
+linha chamando o ExecAuto correspondente e gera log final no diretório
+definido no parâmetro ZZ_LOGDIR.
+
+@type      function
+@author    Felipe O. Pazetto
+@since     10/2025
+@version   1.0
+@param     cCSV,character,String com conteúdo do CSV
+@param     cAlias,character,Alias Protheus (SA1, SB1, ...)
+@param     cSession,character,ID único da sessão para controle de progresso
+@param     ZZ_LOGDIR,character,Diretório físico usado para gravar os logs de importação
+@example   aRet := U_ZIMPEXEC(cCsv, "SA1", "uuid-1234")
+@return    array, no formato {lOk, cMsg, cLogPath, nOk, nErr, nTotal}
+/*/
+// =============================================================================
+User Function ZIMPEXEC(cCSV, cAlias, cSession)
+
+    Local cLogPath   := ""                                                as character
+    Local cLogDir    := Alltrim(SuperGetMV("ZZ_LOGDIR", .F., "C:\temp\")) as character
+    Local cLogName   := ""                                                as character
+    Local cChave     := ""                                                as character
+    Local cMsgErr    := ""                                                as character
+    Local cRotina    := ""                                                as character
+    Local cTipoExec  := ""                                                as character
+    Local cLinha     := ""                                                as character
+    Local aRet        := {.F., "", "", 0, 0, 0}                 as array
+    Local aMap        := U_ZIMPMAP()                            as array
+    Local aLinhas     := {}                                     as array
+    Local aHeader     := {}                                     as array
+    Local aRegistro   := {}                                     as array
+    Local aKeyFields  := {}                                     as array
+    Local nPos   := 0   as numeric
+    Local nI     := 0   as numeric
+    Local nOk    := 0   as numeric
+    Local nErr   := 0   as numeric
+    Local nTotal := 0   as numeric
+    Local nHLog  := -1  as numeric
+    Local lSuccess := .F. as logical
+
+    ConOut("[ZIMPEXEC] Iniciando importacao. Alias=" + cAlias + " Sessao=" + cSession)
+
+    nPos := AScan(aMap, {|x| x[1] == cAlias})
+
+    If nPos == 0
+        aRet[2] := "Tabela " + cAlias + " nao mapeada no importador."
+        ConOut("[ZIMPEXEC][ERRO] " + aRet[2])
+        Return aRet
+    EndIf
+
+    cRotina    := aMap[nPos][3]
+    cTipoExec  := aMap[nPos][4]
+    aKeyFields := aMap[nPos][5]
+
+    // -------------------------------------------------------------------------
+    // Garante diretório de log
+    // -------------------------------------------------------------------------
+    If !ExistDir(cLogDir)
+        MakeDir(cLogDir)
+    EndIf
+
+    cLogName := "IMP_" + cAlias + "_" + DToS(Date()) + "_" + StrTran(Time(), ":", "") + ".txt"
+    cLogPath := cLogDir + cLogName
+
+    nHLog := FCreate(cLogPath, 0)
+
+    If nHLog == -1
+        aRet[2] := "Nao foi possivel criar log em " + cLogPath
+        ConOut("[ZIMPEXEC][ERRO] " + aRet[2])
+        Return aRet
+    EndIf
+
+    // -------------------------------------------------------------------------
+    // Cabeçalho do log
+    // -------------------------------------------------------------------------
+    U_ZIMPLOG(nHLog, "===============================================================")
+    U_ZIMPLOG(nHLog, "IMPORTADOR CSV - " + aMap[nPos][1] + " (" + aMap[nPos][2] + ")")
+    U_ZIMPLOG(nHLog, "Rotina ExecAuto: " + cRotina)
+    U_ZIMPLOG(nHLog, "Data/Hora inicio: " + DToC(Date()) + " " + Time())
+    U_ZIMPLOG(nHLog, "Usuario: " + cUserName + " | Filial: " + cFilAnt)
+    U_ZIMPLOG(nHLog, "Sessao: " + cSession)
+    U_ZIMPLOG(nHLog, "===============================================================")
+    U_ZIMPLOG(nHLog, "")
+
+    // -------------------------------------------------------------------------
+    // Parse do CSV (remove BOM UTF-8 da primeira linha)
+    // -------------------------------------------------------------------------
+    aLinhas := StrTokArr2(cCSV, Chr(10), .T.)
+
+    If Len(aLinhas) > 0
+        aLinhas[1] := StrTran(aLinhas[1], Chr(239) + Chr(187) + Chr(191), "")
+    EndIf
+
+    If Len(aLinhas) < 2
+        U_ZIMPLOG(nHLog, "ERRO: CSV vazio ou sem dados.")
+        FClose(nHLog)
+        aRet[2] := "CSV nao possui dados para importar."
+        ConOut("[ZIMPEXEC][ERRO] " + aRet[2])
+        Return aRet
+    EndIf
+
+    // Primeira linha = header (nomes de campos)
+    aHeader := StrTokArr2(AllTrim(StrTran(aLinhas[1], Chr(13), "")), ";", .T.)
+    nTotal  := Len(aLinhas) - 1
+
+    U_ZIMPLOG(nHLog, "Total de registros a processar: " + cValToChar(nTotal))
+    U_ZIMPLOG(nHLog, "Campos detectados: " + cValToChar(Len(aHeader)))
+    U_ZIMPLOG(nHLog, "")
+
+    // Inicializa controle de progresso
+    U_ZIMPPROG(cSession, 0, nTotal, "Iniciando...")
+
+    // -------------------------------------------------------------------------
+    // Loop principal: processa linha a linha
+    // -------------------------------------------------------------------------
+    For nI := 2 To Len(aLinhas)
+
+        cLinha := AllTrim(StrTran(aLinhas[nI], Chr(13), ""))
+
+        If Empty(cLinha)
+            Loop
+        EndIf
+
+        aRegistro := StrTokArr2(cLinha, ";", .T.)
+
+        // Monta chave para log
+        cChave := fMontaChave(aHeader, aRegistro, aKeyFields)
+
+        // Atualiza progresso
+        U_ZIMPPROG(cSession, nI - 1, nTotal, "Processando: " + cChave)
+
+        // Chama o processador adequado
+        lSuccess := .F.
+        cMsgErr  := ""
+
+        Do Case
+            Case cTipoExec == "CADASTRO"
+                lSuccess := U_ZIMPCAD(cAlias, cRotina, aHeader, aRegistro, @cMsgErr)
+            Case cTipoExec == "CAB_ITENS"
+                // Agrupa itens por chave de cabecalho (tratamento simplificado)
+                lSuccess := U_ZIMPCAB(cAlias, cRotina, aHeader, aRegistro, @cMsgErr)
+        EndCase
+
+        If lSuccess
+            nOk++
+            U_ZIMPLOG(nHLog, "[SUCESSO] Linha " + StrZero(nI - 1, 6) + " | Chave: " + cChave)
+        Else
+            nErr++
+            U_ZIMPLOG(nHLog, "[ FALHA ] Linha " + StrZero(nI - 1, 6) + " | Chave: " + cChave)
+            U_ZIMPLOG(nHLog, "          Motivo: " + cMsgErr)
+        EndIf
+
+    Next nI
+
+    // -------------------------------------------------------------------------
+    // Resumo final do log
+    // -------------------------------------------------------------------------
+    U_ZIMPLOG(nHLog, "")
+    U_ZIMPLOG(nHLog, "===============================================================")
+    U_ZIMPLOG(nHLog, "RESUMO:")
+    U_ZIMPLOG(nHLog, "  Total processado    : " + cValToChar(nTotal))
+    U_ZIMPLOG(nHLog, "  Sucesso             : " + cValToChar(nOk))
+    U_ZIMPLOG(nHLog, "  Falhas              : " + cValToChar(nErr))
+    U_ZIMPLOG(nHLog, "  Taxa sucesso        : " + cValToChar(Iif(nTotal > 0, Round((nOk / nTotal) * 100, 2), 0)) + "%")
+    U_ZIMPLOG(nHLog, "Data/Hora fim: " + DToC(Date()) + " " + Time())
+    U_ZIMPLOG(nHLog, "===============================================================")
+
+    FClose(nHLog)
+
+    // Atualiza progresso final
+    U_ZIMPPROG(cSession, nTotal, nTotal, "Concluido")
+
+    aRet[1] := .T.
+    aRet[2] := "Importacao concluida. Ver log em: " + cLogPath
+    aRet[3] := cLogPath
+    aRet[4] := nOk
+    aRet[5] := nErr
+    aRet[6] := nTotal
+
+    ConOut("[ZIMPEXEC] Importacao finalizada. OK=" + cValToChar(nOk) + " ERR=" + cValToChar(nErr) + " TOTAL=" + cValToChar(nTotal))
+
+Return aRet
+
+/*/{Protheus.doc} ZIMPCAD
+Processa um registro de cadastro simples via ExecAuto. Monta o array aCampos
+no formato {cCampo, xValor, nFlag} e chama MSExecAuto com a rotina indicada.
+
+@type      function
+@author    Felipe O. Pazetto
+@since     10/2025
+@version   1.0
+@param     cAlias,character,Alias Protheus da tabela alvo
+@param     cRotina,character,Nome da rotina ExecAuto (ex: MATA020)
+@param     aHeader,array,Array de strings com nomes dos campos do CSV
+@param     aRegistro,array,Array de strings com os valores da linha atual
+@param     cMsgErr,character,Variável por referência que receberá a mensagem de erro
+@example   lOk := U_ZIMPCAD("SA1", "CRMA980", aHeader, aRegistro, @cMsgErr)
+@return    logical, .T. se sucesso, .F. caso contrário
+/*/
+// =============================================================================
+User Function ZIMPCAD(cAlias, cRotina, aHeader, aRegistro, cMsgErr)
+
+    Local cCampo := "" as character
+    Local cTipo  := "" as character
+    Local xValor := Nil as variant
+    Local aCampos := {} as array
+    Local nI   := 0 as numeric
+    Local nTam := 0 as numeric
+    Local nOpc := 3 as numeric // 3=Inclusao 4=Alteracao 5=Exclusao
+    Local lOk := .T. as logical
+    Private lMsErroAuto    := .F. as logical
+    Private lMsHelpAuto    := .T. as logical
+    Private lAutoErrNoFile := .T. as logical
+
+    // -------------------------------------------------------------------------
+    // Monta aCampos ignorando o campo FILIAL (automático pelo ExecAuto)
+    // -------------------------------------------------------------------------
+    For nI := 1 To Len(aHeader)
+
+        cCampo := AllTrim(aHeader[nI])
+
+        If At("_FILIAL", cCampo) > 0
+            Loop
+        EndIf
+
+        // Tipo e tamanho do campo via SX3
+        cTipo := fGetSX3Cache(cCampo, "X3_TIPO")
+        nTam  := Val(fGetSX3Cache(cCampo, "X3_TAMANHO"))
+
+        xValor := fConverteTipo(aRegistro[nI], cTipo, nTam)
+        AAdd(aCampos, {cCampo, xValor, Nil})
+
+    Next nI
+
+    // -------------------------------------------------------------------------
+    // Posiciona na área correta e executa o ExecAuto
+    // -------------------------------------------------------------------------
+    dbSelectArea(cAlias)
+
+    BEGIN SEQUENCE
+        MSExecAuto({|x, y| &(cRotina + "(x,y)")}, aCampos, nOpc)
+    END SEQUENCE
+
+    If lMsErroAuto
+        cMsgErr := GetAutoGRLog()
+        cMsgErr := StrTran(cMsgErr, Chr(13) + Chr(10), " | ")
+        cMsgErr := Left(cMsgErr, 500)
+        lOk     := .F.
+    EndIf
+
+Return lOk
+
+/*/{Protheus.doc} ZIMPCAB
+Processa registros de cabeçalho + itens (ex: SG1 estrutura, DA1 tabela preço).
+Como o CSV é linha-a-linha, o processamento é por linha. Em cenários com
+vários itens por cabeçalho, o caller deve pré-agrupar. Esta função faz
+tratamento individual (1 registro = 1 execução), simplificação para massa de teste.
+
+@type      function
+@author    Felipe O. Pazetto
+@since     10/2025
+@version   1.0
+@param     cAlias,character,Alias Protheus da tabela alvo
+@param     cRotina,character,Nome da rotina ExecAuto
+@param     aHeader,array,Array com nomes dos campos do CSV
+@param     aRegistro,array,Array com valores da linha atual
+@param     cMsgErr,character,Variável por referência que receberá a mensagem de erro
+@example   lOk := U_ZIMPCAB("SG1", "MATA110", aHeader, aRegistro, @cMsgErr)
+@return    logical
+/*/
+// =============================================================================
+User Function ZIMPCAB(cAlias, cRotina, aHeader, aRegistro, cMsgErr)
+
+    // Para cabecalho + itens, uma simplificacao eficaz na importacao de massa
+    // é tratar como cadastro simples quando cada linha representa um item.
+    // Em cenarios reais, o ideal é pre-agrupar os itens por chave de cabecalho.
+
+Return U_ZIMPCAD(cAlias, cRotina, aHeader, aRegistro, @cMsgErr)
+
+/*/{Protheus.doc} ZIMPLOG
+Escreve uma linha no arquivo de log aberto previamente por FCreate/FOpen.
+Adiciona automaticamente a quebra de linha CRLF.
+
+@type      function
+@author    Felipe O. Pazetto
+@since     10/2025
+@version   1.0
+@param     nHandle,numeric,Handle do arquivo retornado por FCreate
+@param     cTexto,character,Texto que será gravado no log
+@example   U_ZIMPLOG(nHLog, "Registro processado")
+@return    NIL
+/*/
+// =============================================================================
+User Function ZIMPLOG(nHandle, cTexto)
+
+    FWrite(nHandle, cTexto + Chr(13) + Chr(10))
+
+Return Nil
+
+/*/{Protheus.doc} ZIMPPROG
+Atualiza o progresso da importação em memória global (PutGlbValue). Permite
+que o endpoint GET /progresso consulte o status atual por sessão.
+
+@type      function
+@author    Felipe O. Pazetto
+@since     10/2025
+@version   1.0
+@param     cSession,character,ID único da sessão
+@param     nAtual,numeric,Quantidade processada até o momento
+@param     nTotal,numeric,Quantidade total a processar
+@param     cDesc,character,Descrição do estado atual
+@example   U_ZIMPPROG("uuid-123", 10, 100, "Processando linha 10")
+@return    NIL
+/*/
+// =============================================================================
+User Function ZIMPPROG(cSession, nAtual, nTotal, cDesc)
+
+    Local cKey  := "ZIMP_PROG_" + cSession                                                      as character
+    Local cData := cValToChar(nAtual) + "|" + cValToChar(nTotal) + "|" + cDesc + "|" + Time()   as character
+
+    PutGlbValue(cKey, cData)
+
+Return Nil
+
+/*/{Protheus.doc} ZIMPPRGR
+Retorna o progresso atual de uma sessão de importação em formato de array
+para posterior conversão em JSON pelo endpoint REST.
+
+@type      function
+@author    Felipe O. Pazetto
+@since     10/2025
+@version   1.0
+@param     cSession,character,ID único da sessão
+@example   aProg := U_ZIMPPRGR("uuid-123")
+@return    array, no formato {nAtual, nTotal, cDesc, cHora}
+/*/
+// =============================================================================
+User Function ZIMPPRGR(cSession)
+
+    Local cKey  := "ZIMP_PROG_" + cSession  as character
+    Local cData := GetGlbValue(cKey)        as character
+    Local aRet  := {0, 0, "Aguardando", ""} as array
+
+    If !Empty(cData)
+        aRet := StrTokArr2(cData, "|", .T.)
+    EndIf
+
+Return aRet
+
+/*/{Protheus.doc} fMontaChave
+Monta uma string de chave composta a partir dos campos-chave definidos no
+mapeamento, localizando cada campo no header e concatenando os valores
+do registro separados por pipe ("|").
+
+@type      function
+@author    Felipe O. Pazetto
+@since     10/2025
+@version   1.0
+@param     aHeader,array,Array com os nomes dos campos do CSV
+@param     aRegistro,array,Array com os valores da linha atual
+@param     aKeyFields,array,Array com os campos que compõem a chave
+@example   cChave := fMontaChave(aHeader, aRegistro, {"A1_COD","A1_LOJA"})
+@return    character
+/*/
+// =============================================================================
+Static Function fMontaChave(aHeader, aRegistro, aKeyFields)
+
+    Local cChave := "" as character
+    Local nI     := 0  as numeric
+    Local nPos   := 0  as numeric
+
+    For nI := 1 To Len(aKeyFields)
+        nPos := AScan(aHeader, {|x| AllTrim(x) == aKeyFields[nI]})
+        If nPos > 0 .And. nPos <= Len(aRegistro)
+            cChave += AllTrim(aRegistro[nPos]) + "|"
+        EndIf
+    Next nI
+
+    If !Empty(cChave)
+        cChave := Left(cChave, Len(cChave) - 1)
+    EndIf
+
+Return cChave
+
+/*/{Protheus.doc} fGetSX3Cache
+Consulta no SX3 o valor de uma propriedade de um campo informado (tipo, tamanho,
+decimal ou título). Preserva a área ativa antes e depois da consulta.
+
+@type      function
+@author    Felipe O. Pazetto
+@since     10/2025
+@version   1.0
+@param     cCampo,character,Nome do campo (10 caracteres) a consultar no SX3
+@param     cProp,character,Propriedade a retornar (X3_TIPO, X3_TAMANHO, X3_DECIMAL, X3_TITULO)
+@example   cTipo := fGetSX3Cache("A1_COD", "X3_TIPO")
+@return    character
+/*/
+// =============================================================================
+Static Function fGetSX3Cache(cCampo, cProp)
+
+    Local cRet  := ""         as character
+    Local aArea := GetArea()  as array
+
+    dbSelectArea("SX3")
+    SX3->(dbSetOrder(2))
+
+    If SX3->(dbSeek(PadR(cCampo, 10)))
+        Do Case
+            Case cProp == "X3_TIPO"
+                cRet := SX3->X3_TIPO
+            Case cProp == "X3_TAMANHO"
+                cRet := cValToChar(SX3->X3_TAMANHO)
+            Case cProp == "X3_DECIMAL"
+                cRet := cValToChar(SX3->X3_DECIMAL)
+            Case cProp == "X3_TITULO"
+                cRet := AllTrim(SX3->X3_TITULO)
+        EndCase
+    EndIf
+
+    RestArea(aArea)
+
+Return cRet
+
+/*/{Protheus.doc} fConverteTipo
+Converte o valor textual vindo do CSV para o tipo adequado do campo alvo,
+usando a metadata do SX3 (X3_TIPO / X3_TAMANHO). Trata numérico com vírgula
+ou ponto como separador decimal, data em formato YYYYMMDD e lógico como S/T/1.
+
+@type      function
+@author    Felipe O. Pazetto
+@since     10/2025
+@version   1.0
+@param     cValor,character,Valor bruto do CSV
+@param     cTipo,character,Tipo do campo (N, D, L, C, M)
+@param     nTam,numeric,Tamanho do campo para padding em caracter
+@example   xValor := fConverteTipo("123,45", "N", 10)
+@return    variant
+/*/
+// =============================================================================
+Static Function fConverteTipo(cValor, cTipo, nTam)
+
+    Local xRet := Nil as variant
+
+    cValor := AllTrim(cValor)
+
+    Do Case
+        Case cTipo == "N"
+            // Numérico — trata vírgula ou ponto como separador decimal
+            xRet := Val(StrTran(cValor, ",", "."))
+
+        Case cTipo == "D"
+            // Data no formato YYYYMMDD
+            If Len(cValor) == 8
+                xRet := SToD(cValor)
+            Else
+                xRet := SToD("")
+            EndIf
+
+        Case cTipo == "L"
+            xRet := (Upper(cValor) == "S" .Or. Upper(cValor) == "T" .Or. cValor == "1")
+
+        Otherwise  // C, M
+            xRet := PadR(cValor, nTam)
+    EndCase
+
+Return xRet

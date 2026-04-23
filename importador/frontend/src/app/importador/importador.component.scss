@@ -1,0 +1,23 @@
+:host {
+  display: block;
+}
+
+.po-row {
+  margin-bottom: 0.75rem;
+}
+
+.barra-secao {
+  padding: 0.5rem 0;
+
+  .po-label {
+    display: block;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--color-neutral-dark-70, #4a5868);
+    margin-bottom: 0.25rem;
+  }
+}
+
+po-info {
+  display: block;
+}

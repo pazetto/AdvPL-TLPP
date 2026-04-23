@@ -1,0 +1,120 @@
+<po-page-default
+  [p-title]="titulo"
+  [p-actions]="acoes">
+
+  <div class="po-row">
+    <po-info
+      class="po-md-12"
+      p-label="Instrucoes"
+      p-value="Selecione a tabela destino, escolha o arquivo CSV gerado no mesmo padrao da base de testes e clique em Importar. O sistema executa linha a linha via ExecAuto da rotina padrao do Protheus e gera um log em C:/temp/.">
+    </po-info>
+  </div>
+
+  <!-- Sessao 1: Selecao de tabela -->
+  <div class="po-row">
+    <po-select
+      class="po-md-5"
+      name="tabela"
+      p-label="Tabela destino"
+      [p-required]="true"
+      [p-options]="opcoesTabela"
+      [ngModel]="tabelaSelecionada"
+      (ngModelChange)="onTabelaChange($event)">
+    </po-select>
+
+    <po-input
+      class="po-md-7"
+      name="descricao"
+      p-label="Descricao da tabela"
+      p-readonly="true"
+      [(ngModel)]="labelSelecionada"
+      p-placeholder="Selecione uma tabela para ver a descricao">
+    </po-input>
+  </div>
+
+  <!-- Sessao 2: Upload do arquivo -->
+  <div class="po-row">
+    <po-upload
+      #uploadComponent
+      class="po-md-12"
+      name="arquivo"
+      p-label="Arquivo CSV"
+      p-url="."
+      [p-required]="true"
+      [p-drag-drop]="true"
+      [p-hide-send-button]="true"
+      [p-auto-upload]="false"
+      [p-restrictions]="{ allowedExtensions: ['.csv'] }"
+      [p-disabled]="importando"
+      [ngModel]="arquivosSelecionados"
+      (ngModelChange)="onUploadChange($event)">
+    </po-upload>
+  </div>
+
+  <!-- Sessao 3: Progresso (visivel durante importacao e ao concluir) -->
+  <ng-container *ngIf="importando || concluido">
+    <po-divider p-label="Progresso da importacao"></po-divider>
+
+    <div class="po-row">
+      <po-info
+        class="po-md-6"
+        p-label="Registro atual"
+        [p-value]="descricaoAtual || '(aguardando)'">
+      </po-info>
+
+      <po-info
+        class="po-md-6"
+        p-label="Processados"
+        [p-value]="itensProcessados + ' de ' + totalItens">
+      </po-info>
+    </div>
+
+    <div class="po-row">
+      <div class="po-md-12 barra-secao">
+        <label class="po-label">Progresso do item em processamento</label>
+        <po-progress
+          [p-value]="progressoItem"
+          [p-indeterminate]="importando && progressoItem < 100"
+          p-info="Item atual">
+        </po-progress>
+      </div>
+    </div>
+
+    <div class="po-row">
+      <div class="po-md-12 barra-secao">
+        <label class="po-label">Progresso total da tabela</label>
+        <po-progress
+          [p-value]="progressoTotal"
+          p-info="Total da tabela">
+        </po-progress>
+      </div>
+    </div>
+  </ng-container>
+
+  <!-- Sessao 4: Resumo ao final -->
+  <ng-container *ngIf="concluido && resultado">
+    <po-divider p-label="Resumo"></po-divider>
+
+    <div class="po-row">
+      <po-info class="po-md-3" p-label="Total processado"
+        [p-value]="resultado.total + ' registros'"></po-info>
+      <po-info class="po-md-3" p-label="Sucessos"
+        [p-value]="resultado.ok + ' registros'"></po-info>
+      <po-info class="po-md-3" p-label="Falhas"
+        [p-value]="resultado.erro + ' registros'"></po-info>
+      <po-info class="po-md-3" p-label="Log gerado em"
+        [p-value]="resultado.logPath"></po-info>
+    </div>
+
+    <div class="po-row">
+      <po-button
+        class="po-md-3"
+        p-label="Baixar log completo"
+        p-kind="primary"
+        p-icon="po-icon po-icon-download"
+        (p-click)="baixarLog()">
+      </po-button>
+    </div>
+  </ng-container>
+
+</po-page-default>

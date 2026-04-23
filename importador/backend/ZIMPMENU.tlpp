@@ -1,0 +1,41 @@
+#include "tlpp-core.th"
+#include "protheus.ch"
+#include "totvs.ch"
+
+// =============================================================================
+// Declaracao da Namespace
+// =============================================================================
+Namespace custom.menu.importador
+
+/*/{Protheus.doc} ZIMPMENU
+Rotina de menu que abre a aplicacao Angular/PO-UI "Importador CSV" embarcada
+no SmartClient via funcao nativa FwCallApp.
+
+A FwCallApp:
+  - Extrai o resource "importador.app" do RPO
+  - Configura o api_baseUrl dinamicamente (com base no /assets/data/appconfig.json)
+  - Carrega o token JWT em sessionStorage['ERPTOKEN'] (autenticacao)
+  - Renderiza o app embarcado no SmartClient
+  - Sem consumo de licenca REST adicional (via porta multiprotocolo)
+
+Pre-requisitos:
+  - LIB do Protheus >= 20190705 (FwCallApp disponivel)
+  - LIB >= 20200214 e AppServer >= 7.00.191205P para uso simplificado
+    (apenas App_Environment em [General], sem MV_BACKEND/MV_GCTPURL)
+  - [Drivers] MultiProtocolPort=1 no appserver.ini
+  - importador.app compilado como resource no RPO
+  - Frontend compilado com protheus-lib-core e padroes do FwCallApp
+
+@type      function
+@author    Felipe O. Pazetto
+@since     22/04/2026
+@version   2.0
+@see       https://tdn.totvs.com/display/public/framework/FwCallApp+-+Abrindo+aplicativos+Web+no+Protheus
+/*/
+User Function ZIMPMENU()
+
+    ConOut("[ZIMPMENU] Abrindo aplicativo 'importador' via FwCallApp...")
+
+    FwCallApp("importador")
+
+Return
