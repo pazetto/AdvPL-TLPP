@@ -6,14 +6,14 @@
 #include "restful.ch"
 
 // =============================================================================
-// Declaração da Namespace
+// DeclaraÃ§Ã£o da Namespace
 // =============================================================================
 Namespace custom.rest.importador
 
 /*/{Protheus.doc} ZIMPTABS
-Endpoint GET responsável por listar as tabelas suportadas pelo importador CSV
+Endpoint GET responsÃ¡vel por listar as tabelas suportadas pelo importador CSV
 para popular o componente po-select do frontend PO-UI. Retorna um JSON com
-alias, descrição, rotina ExecAuto e label concatenada.
+alias, descriÃ§Ã£o, rotina ExecAuto e label concatenada.
 @type      function
 @author    Felipe O. Pazetto
 @since     15/04/2026
@@ -34,7 +34,7 @@ User Function ZIMPTABS()
     aMap := CUSTOM.IMPORTADOR.CSV.U_ZIMPMAP()
 
     ConOut("[ZIMPTABS] Listando tabelas suportadas pelo importador...")
-    ConOut("[ZIMPTABS] Teste de compila��o")
+    ConOut("[ZIMPTABS] Teste de compilação")
 
     // -------------------------------------------------------------------------
     // Monta o array de itens a partir do mapeamento
@@ -63,17 +63,17 @@ User Function ZIMPTABS()
 Return
 
 /*/{Protheus.doc} ZIMPINIC
-Endpoint POST responsável por iniciar a importação a partir de um corpo JSON
-contendo alias, conteúdo CSV em texto e ID de sessão. Dispara a rotina
-U_ZIMPEXEC de forma síncrona e devolve o resultado final da importação.
+Endpoint POST responsÃ¡vel por iniciar a importaÃ§Ã£o a partir de um corpo JSON
+contendo alias, conteÃºdo CSV em texto e ID de sessÃ£o. Dispara a rotina
+U_ZIMPEXEC de forma sÃ­ncrona e devolve o resultado final da importaÃ§Ã£o.
 
 @type      function
 @author    Felipe O. Pazetto
 @since     15/04/2026
 @version   1.0
-@param     alias,character,Alias Protheus alvo da importação (SA1, SB1, ...)
-@param     csv,character,Conteúdo CSV em texto (delimitador ";", UTF-8)
-@param     session,character,ID único da sessão para controle de progresso
+@param     alias,character,Alias Protheus alvo da importaÃ§Ã£o (SA1, SB1, ...)
+@param     csv,character,ConteÃºdo CSV em texto (delimitador ";", UTF-8)
+@param     session,character,ID Ãºnico da sessÃ£o para controle de progresso
 @example   POST https://<servidor>:<porta>/rest/zimportador/iniciar
            {
              "alias"   : "SA1",
@@ -106,7 +106,7 @@ User Function ZIMPINIC()
     ConOut("[ZIMPINIC] Recebendo requisicao de importacao...")
 
     // -------------------------------------------------------------------------
-    // Lê e desserializa o corpo da requisição
+    // LÃª e desserializa o corpo da requisiÃ§Ã£o
     // -------------------------------------------------------------------------
     cBody := oRest:getBodyRequest()
 
@@ -126,7 +126,7 @@ User Function ZIMPINIC()
     cSession := Iif(ValType(jBody:GetJsonObject("session")) == "C", Alltrim(jBody:GetJsonObject("session")), "")
 
     // -------------------------------------------------------------------------
-    // Valida parâmetros obrigatórios
+    // Valida parÃ¢metros obrigatÃ³rios
     // -------------------------------------------------------------------------
     If Empty(cAlias) .Or. Empty(cCsv) .Or. Empty(cSession)
         ConOut("[ZIMPINIC][ERRO] Parametros obrigatorios ausentes.")
@@ -141,8 +141,8 @@ User Function ZIMPINIC()
     ConOut("[ZIMPINIC] Alias=" + cAlias + " | Sessao=" + cSession + " | Tamanho CSV=" + cValToChar(Len(cCsv)) + " bytes")
 
     // -------------------------------------------------------------------------
-    // Dispara a importação síncrona. Para grandes volumes, considerar StartJob
-    // (assíncrono); o frontend continua consultando GET /progresso mesmo assim.
+    // Dispara a importaÃ§Ã£o sÃ­ncrona. Para grandes volumes, considerar StartJob
+    // (assÃ­ncrono); o frontend continua consultando GET /progresso mesmo assim.
     // -------------------------------------------------------------------------
     aRet := custom.importador.csv.U_ZIMPEXEC(cCsv, cAlias, cSession)
 
@@ -165,15 +165,15 @@ User Function ZIMPINIC()
 Return
 
 /*/{Protheus.doc} ZIMPPROGR
-Endpoint GET responsável por consultar o progresso atual de uma sessão de
-importação. Retorna um JSON com quantidade atual, total, descrição do estado,
-hora da última atualização e percentual calculado.
+Endpoint GET responsÃ¡vel por consultar o progresso atual de uma sessÃ£o de
+importaÃ§Ã£o. Retorna um JSON com quantidade atual, total, descriÃ§Ã£o do estado,
+hora da Ãºltima atualizaÃ§Ã£o e percentual calculado.
 
 @type      function
 @author    Felipe O. Pazetto
 @since     15/04/2026
 @version   1.0
-@param     session,character,ID único da sessão (via query string)
+@param     session,character,ID Ãºnico da sessÃ£o (via query string)
 @example   GET https://<servidor>:<porta>/rest/zimportador/progresso?session=uuid-123
 @return    JSON
            {
@@ -216,7 +216,7 @@ User Function ZIMPPROGR()
     EndIf
 
     // -------------------------------------------------------------------------
-    // Consulta progresso em memória global e calcula percentual
+    // Consulta progresso em memÃ³ria global e calcula percentual
     // -------------------------------------------------------------------------
     aProg := CUSTOM.IMPORTADOR.CSV.U_ZIMPPRGR(cSession)
 
@@ -239,18 +239,18 @@ User Function ZIMPPROGR()
 Return
 
 /*/{Protheus.doc} ZIMPLOGD
-Endpoint GET responsável por retornar o conteúdo do arquivo de log mais recente
-da pasta definida em ZZ_LOGDIR. Busca arquivos no padrão "IMP_*.txt" ordenados
+Endpoint GET responsÃ¡vel por retornar o conteÃºdo do arquivo de log mais recente
+da pasta definida em ZZ_LOGDIR. Busca arquivos no padrÃ£o "IMP_*.txt" ordenados
 por data/hora decrescente e devolve o mais novo em texto plano.
 
 @type      function
 @author    Felipe O. Pazetto
 @since     15/04/2026
 @version   1.0
-@param     session,character,ID único da sessão (via query string)
-@param     ZZ_LOGDIR,character,Diretório físico onde os logs estão gravados
+@param     session,character,ID Ãºnico da sessÃ£o (via query string)
+@param     ZZ_LOGDIR,character,DiretÃ³rio fÃ­sico onde os logs estÃ£o gravados
 @example   GET https://<servidor>:<porta>/rest/zimportador/log?session=uuid-123
-@return    text/plain com o conteúdo do log
+@return    text/plain com o conteÃºdo do log
 /*/
 // =============================================================================
 @Get("/zimportador/log")
@@ -289,7 +289,7 @@ User Function ZIMPLOGD()
 
     // -------------------------------------------------------------------------
     // Lista os logs da pasta e elege o mais recente (ordena desc por data/hora)
-    // Em produção, salvar o caminho junto com session em GlbValue é o ideal.
+    // Em produÃ§Ã£o, salvar o caminho junto com session em GlbValue Ã© o ideal.
     // -------------------------------------------------------------------------
     cBusca := cPath + "IMP_*.txt"
     aArqs  := Directory(cBusca)
@@ -306,7 +306,7 @@ User Function ZIMPLOGD()
     ASort(aArqs, , , {|x, y| x[3] + x[4] > y[3] + y[4]})
 
     // -------------------------------------------------------------------------
-    // Abre e lê o arquivo mais recente
+    // Abre e lÃª o arquivo mais recente
     // -------------------------------------------------------------------------
     nH := FOpen(cPath + aArqs[1][1], 0)
 
