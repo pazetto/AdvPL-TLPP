@@ -17,7 +17,7 @@ User Function ConvertTimeStamp(cTimeStamp)
     // 1. Pega apenas a parte da data "YYYY-MM-DD"
     cDataCurta := SubStr(cTimeStamp, 1, 10) 
 
-    // 2. Remove os traços para ficar no formato aceito pelo SToD: "YYYYMMDD"
+    // 2. Remove os traÃ§os para ficar no formato aceito pelo SToD: "YYYYMMDD"
     cDataLimpa := StrTran(cDataCurta, "-", "") 
 
     // 3. Converte de String para o tipo Date nativo do Protheus
